@@ -64,6 +64,9 @@ namespace CornerBreak.Tests
                     var options = new AppOptions { Preview = true, PreviewAt = At("12:50:00") };
                     using (var window = new MainWindow(options, settingsPath, catalog))
                     {
+                        // Existing presentation assertions cover the original
+                        // timed-popup mode; floating mode has its own suite.
+                        window.CurrentSettings.FloatingMode = false;
                         Tick(window, "12:50:00");
                         Check(window.Visible && window.CurrentState.Mode == "Active", "active auto-show");
                         Check(window.ClockLabel.Text == "10:00", "ten minute countdown");
@@ -234,6 +237,15 @@ namespace CornerBreak.Tests
         {
             var parsed = AppOptions.Parse(new[] { "--preview", "--preview-at", "2026-10-25T12:59:00", "--preview-mascot", "fish", "--render-preview", "x.png" });
             Check(parsed.Preview && parsed.PreviewAt == At("12:59:00") && parsed.PreviewMascot == "fish", "preview arguments");
+            var widgetRender = AppOptions.Parse(new[] { "--preview", "--previewscenario", "Waiting", "--render-widget", "widget.png" });
+            Check(widgetRender.RenderWidget == "widget.png" && widgetRender.PreviewScenario == "Waiting", "widget render arguments");
+            foreach (var invalidRender in new[] { new[] { "--render-widget", "widget.png" },
+                new[] { "--preview", "--render-widget", "widget.png", "--render-settings", "settings.png" } })
+            {
+                bool rejectedRender = false;
+                try { AppOptions.Parse(invalidRender); } catch (ArgumentException) { rejectedRender = true; }
+                Check(rejectedRender, "widget rendering remains isolated and single-output");
+            }
             foreach (var args in new[] { new[] { "--render-preview", "x.png" }, new[] { "--preview", "--preview-mascot", "invalid" }, new[] { "--preview-at" }, new[] { "--exit", "--show" }, new[] { "--unknown" } })
             {
                 bool rejected = false;

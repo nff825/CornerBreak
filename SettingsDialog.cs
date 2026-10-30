@@ -13,6 +13,7 @@ namespace CornerBreak
         private bool resourcesDisposed;
         public Dictionary<string, CheckBox> Checks { get; private set; }
         public CheckBox ExpandCheck { get; private set; }
+        public CheckBox FloatingCheck { get; private set; }
         public ComboBox MascotChoice { get; private set; }
         public PictureBox MascotPreview { get; private set; }
 
@@ -29,7 +30,7 @@ namespace CornerBreak
             MaximizeBox = false;
             MinimizeBox = false;
             ShowInTaskbar = false;
-            ClientSize = new Size(400, 482);
+            ClientSize = new Size(400, 530);
             BackColor = Color.FromArgb(246, 248, 252);
 
             AddLabel("选择想收到的提醒", new Rectangle(20, 14, 360, 35), 14, false);
@@ -63,10 +64,16 @@ namespace CornerBreak
                 Bounds = new Rectangle(22, 301, 356, 36), Checked = settings.AutoExpand
             };
             Controls.Add(ExpandCheck);
+            FloatingCheck = new CheckBox {
+                Name = "FloatingMode", AccessibleName = "常驻小挂件",
+                Text = "常驻小挂件（平时显示下次休息）",
+                Bounds = new Rectangle(22, 344, 356, 36), Checked = settings.FloatingMode
+            };
+            Controls.Add(FloatingCheck);
             AddLabel("共用每小时 50 分至整点的提醒时段。\r\n放大时文字也会变大，鼠标停留时暂停。\r\n全部项目关闭后不自动提醒。",
-                new Rectangle(22, 347, 356, 60), 9, true);
-            var save = NewButton("保存", new Point(146, 427), DialogResult.OK);
-            var cancel = NewButton("取消", new Point(268, 427), DialogResult.Cancel);
+                new Rectangle(22, 395, 356, 60), 9, true);
+            var save = NewButton("保存", new Point(146, 475), DialogResult.OK);
+            var cancel = NewButton("取消", new Point(268, 475), DialogResult.Cancel);
             AcceptButton = save;
             CancelButton = cancel;
             // Apply system DPI once, after every 96-DPI rectangle exists.
@@ -129,6 +136,7 @@ namespace CornerBreak
             candidate.Water = Checks["Water"].Checked;
             candidate.Move = Checks["Move"].Checked;
             candidate.AutoExpand = ExpandCheck.Checked;
+            candidate.FloatingMode = FloatingCheck.Checked;
             candidate.Mascot = MascotCatalog.Options[Math.Max(0, MascotChoice.SelectedIndex)].Id;
             return candidate;
         }

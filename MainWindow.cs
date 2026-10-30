@@ -18,7 +18,7 @@ namespace CornerBreak
         private DateTime previewStart;
         private string settingsWarning = "";
         private bool quitting, manualOpen, allowActivate, timersStarted, resourcesDisposed;
-        private string shownHour = "", lastMode = "";
+        private string shownHour = "", lastMode = "", collapsedHour = "";
         private double growthWidth, growthHeight;
         private double growthAnchorRight = Double.NaN, growthAnchorBottom = Double.NaN;
         private string growthScreenName = "";
@@ -30,6 +30,7 @@ namespace CornerBreak
         private readonly Label detail, clockCaption, mascotCaption, note;
         private readonly Button hideButton, pauseButton;
         private readonly ToolStripItem skipItem;
+        private readonly ToolStripItem collapseItem;
 
         public BreakSettings CurrentSettings { get; private set; }
         public ReminderState CurrentState { get { return ReminderRules.GetState(CurrentTime, CurrentSettings); } }
@@ -46,6 +47,8 @@ namespace CornerBreak
         public ContextMenuStrip PauseMenu { get; private set; }
         public ToolStripItem ResumeItem { get; private set; }
         public GrowthSurface GrowthSurface { get; private set; }
+        public FloatingWidget Widget { get; private set; }
+        public ToolStripMenuItem FloatingModeItem { get; private set; }
         public bool DialogOpen { get; set; }
         public bool GrowthMoving { get; set; }
         public bool RestAutoHidePending { get; private set; }
@@ -195,6 +198,10 @@ namespace CornerBreak
 
             menu.Items.Add("查看状态", null, delegate { ShowStatus(); });
             menu.Items.Add("提醒设置…", null, delegate { OpenSettings(); });
+            FloatingModeItem = new ToolStripMenuItem("常驻小挂件");
+            FloatingModeItem.Click += delegate { SetFloatingMode(!CurrentSettings.FloatingMode); };
+            menu.Items.Add(FloatingModeItem);
+            collapseItem = menu.Items.Add("收起详情", null, delegate { CollapseDetails(); });
             MascotMenuItem = new ToolStripMenuItem("休息伙伴");
             menu.Items.Add(MascotMenuItem);
             foreach (var choice in MascotCatalog.Options)
@@ -237,6 +244,14 @@ namespace CornerBreak
             PerformAutoScale();
             PerformLayout();
             GrowthSurface = new GrowthSurface(this, RootLayout);
+            Widget = new FloatingWidget(mascots);
+            Widget.ContextMenuStrip = menu;
+            Widget.OpenRequested += delegate {
+                if (CurrentState.Mode == "Disabled") OpenSettings();
+                else ShowStatus();
+            };
+            Widget.PositionChangedByUser += delegate { SaveWidgetPosition(); };
+            Widget.Place(CurrentSettings.FloatingX, CurrentSettings.FloatingY);
             ResizeBegin += delegate { GrowthMoving = true; };
             ResizeEnd += delegate {
                 GrowthMoving = false;
@@ -361,17 +376,19 @@ namespace CornerBreak
 
         private void PositionReminder()
         {
-            var screen = Visible ? Screen.FromControl(this) : Screen.FromPoint(Cursor.Position);
+            var screen = Visible ? Screen.FromControl(this) :
+                CurrentSettings.FloatingMode && Widget != null ? Screen.FromControl(Widget) : Screen.FromPoint(Cursor.Position);
             var area = screen.WorkingArea;
             growthScreenName = screen.DeviceName;
-            growthAnchorRight = area.Right - Math.Min(20, area.Width / 4.0);
-            growthAnchorBottom = area.Bottom - Math.Min(20, area.Height / 4.0);
+            growthAnchorRight = CurrentSettings.FloatingMode && Widget != null ? Widget.Right : area.Right - Math.Min(20, area.Width / 4.0);
+            growthAnchorBottom = CurrentSettings.FloatingMode && Widget != null ? Widget.Bottom : area.Bottom - Math.Min(20, area.Height / 4.0);
             UpdateReminderGrowth(true);
         }
 
         public void ShowStatus()
         {
             manualOpen = true;
+            collapsedHour = "";
             UpdateReminder(false);
             var state = CurrentState;
             if (state.Mode == "Active") shownHour = state.HourKey;
@@ -388,7 +405,7 @@ namespace CornerBreak
             candidate.PauseUntil = minutes > 0 ? CurrentTime.AddMinutes(minutes).ToString("o") : "";
             if (!SaveSettings(candidate)) return;
             shownHour = "";
-            manualOpen = true;
+            manualOpen = !CurrentSettings.FloatingMode;
             UpdateReminder(false);
         }
 
@@ -399,7 +416,43 @@ namespace CornerBreak
             candidate.PauseUntil = "";
             if (!SaveSettings(candidate)) return;
             shownHour = "";
+            collapsedHour = "";
+            manualOpen = false;
             UpdateReminder();
+        }
+
+        public bool SaveWidgetPosition()
+        {
+            Widget.ClampToScreen();
+            var candidate = CurrentSettings.Clone();
+            candidate.FloatingX = Widget.Left;
+            candidate.FloatingY = Widget.Top;
+            return SaveSettings(candidate);
+        }
+
+        public void SetFloatingMode(bool enabled)
+        {
+            var candidate = CurrentSettings.Clone();
+            candidate.FloatingMode = enabled;
+            if (!SaveSettings(candidate)) return;
+            manualOpen = false;
+            if (!enabled) collapsedHour = "";
+            UpdateReminder();
+        }
+
+        // Collapsing is a presentation action. It must never mark the rest
+        // period as skipped; explicit dismissal uses HideReminder instead.
+        public void CollapseDetails()
+        {
+            var state = CurrentState;
+            if (state.Mode == "Active")
+            {
+                shownHour = state.HourKey;
+                collapsedHour = state.HourKey;
+            }
+            manualOpen = false;
+            Hide();
+            UpdateReminder(false);
         }
 
         public void HideReminder()
@@ -413,18 +466,32 @@ namespace CornerBreak
             }
             manualOpen = false;
             Hide();
+            UpdateReminder(false);
             UpdateReminderGrowth(true);
         }
 
         public void UpdateReminder(bool allowPopup = true)
         {
             var state = CurrentState;
+            if (state.PauseExpired)
+            {
+                // Expiration is already determined by the saved deadline.
+                // Clear the live state without disk writes on timer ticks;
+                // reopening an older saved deadline expires it the same way.
+                var resumed = CurrentSettings.Clone();
+                resumed.Paused = false;
+                resumed.PauseUntil = "";
+                CurrentSettings = resumed;
+                state = CurrentState;
+            }
             bool isPaused = CurrentSettings.Paused && !state.PauseExpired;
             skipItem.Enabled = state.Mode == "Active";
             PauseItem.Visible = !isPaused;
             ResumeItem.Visible = isPaused;
+            FloatingModeItem.Checked = CurrentSettings.FloatingMode;
+            collapseItem.Enabled = Visible;
             pauseButton.Text = isPaused ? "恢复提醒" : "暂停提醒";
-            hideButton.Text = state.Mode == "Active" ? "本轮不再提示" : "收起窗口";
+            hideButton.Text = state.Mode == "Active" ? "本轮不再提示" : CurrentSettings.FloatingMode ? "收起为小挂件" : "收起窗口";
             SuspendLayout();
             RootLayout.SuspendLayout();
             try
@@ -494,14 +561,34 @@ namespace CornerBreak
                 if (state.Mode != "Active") manualOpen = false;
                 RestAutoHidePending = false;
             }
-            if (state.Mode == "Active" && allowPopup && !DialogOpen && shownHour != state.HourKey)
+            bool displayInteraction = DialogOpen || menu.Visible || PauseMenu.Visible ||
+                PauseItem.DropDown.Visible || MascotMenuItem.DropDown.Visible || Widget.IsPointerInteraction;
+            if (state.Mode == "Active" && allowPopup && !displayInteraction && shownHour != state.HourKey)
             {
                 shownHour = state.HourKey;
                 manualOpen = false;
-                if (!Visible) PositionReminder();
-                Show();
+                collapsedHour = "";
             }
-            else if (state.Mode != "Active" && !manualOpen && !DialogOpen && Visible) Hide();
+            bool showDetails = manualOpen || DialogOpen ||
+                (state.Mode == "Active" && shownHour == state.HourKey && collapsedHour != state.HourKey);
+            Widget.UpdateContent(state, CurrentSettings);
+            if (showDetails)
+            {
+                if (!Visible) PositionReminder();
+                Widget.Hide();
+                if (!Visible) Show();
+            }
+            else
+            {
+                if (Visible) Hide();
+                if (CurrentSettings.FloatingMode)
+                {
+                    Widget.ClampToScreen();
+                    if (!Widget.Visible) Widget.Show();
+                }
+                else Widget.Hide();
+            }
+            collapseItem.Enabled = Visible;
             if (state.HourKey != shownHour) shownHour = "";
             lastMode = state.Mode;
             if (options.Preview) tray.Text += "（预览）";
@@ -510,6 +597,7 @@ namespace CornerBreak
 
         public void RefreshSettingsLayout()
         {
+            if (CurrentSettings.FloatingMode && !DialogOpen && CurrentState.Mode != "Active") manualOpen = false;
             UpdateReminder(false);
             // Explicit edits must fit changed content even while hovered.
             UpdateReminderGrowth(true, true);
@@ -552,6 +640,7 @@ namespace CornerBreak
             timer.Stop();
             growthTimer.Stop();
             tray.Visible = false;
+            if (Widget != null) Widget.Hide();
             Application.ExitThread();
         }
 
@@ -584,10 +673,31 @@ namespace CornerBreak
             finally { if (editor != null) editor.Dispose(); }
         }
 
+        public void RenderWidgetImage(string path)
+        {
+            if (!options.Preview) throw new InvalidOperationException("Rendering requires preview mode.");
+            SetPreviewTime(previewStart);
+            Widget.UpdateContent(CurrentState, CurrentSettings);
+            Widget.Show();
+            Widget.PerformLayout();
+            Application.DoEvents();
+            string fullPath = Path.GetFullPath(path);
+            Directory.CreateDirectory(Path.GetDirectoryName(fullPath));
+            using (var bitmap = new Bitmap(Widget.Width, Widget.Height))
+            {
+                Widget.DrawToBitmap(bitmap, new Rectangle(Point.Empty, Widget.Size));
+                bitmap.Save(fullPath, System.Drawing.Imaging.ImageFormat.Png);
+            }
+        }
+
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            if (options.Preview || quitting) RequestExit();
-            else { e.Cancel = true; HideReminder(); }
+            if (quitting || (options.Preview && !CurrentSettings.FloatingMode)) RequestExit();
+            else
+            {
+                e.Cancel = true;
+                CollapseDetails();
+            }
             base.OnFormClosing(e);
         }
 
@@ -603,6 +713,7 @@ namespace CornerBreak
                 menu.Dispose();
                 if (PauseMenu != null) PauseMenu.Dispose();
                 if (MascotPicture != null) MascotPicture.Image = null;
+                if (Widget != null) Widget.Dispose();
             }
             base.Dispose(disposing);
             if (releaseResources)

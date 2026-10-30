@@ -14,6 +14,9 @@ namespace CornerBreak
         public bool Water { get; set; }
         public bool Move { get; set; }
         public bool AutoExpand { get; set; }
+        public bool FloatingMode { get; set; }
+        public int? FloatingX { get; set; }
+        public int? FloatingY { get; set; }
         public string Mascot { get; set; }
         public bool Paused { get; set; }
         public string PauseUntil { get; set; }
@@ -22,7 +25,7 @@ namespace CornerBreak
         public BreakSettings()
         {
             Version = 1;
-            Eyes = Water = Move = AutoExpand = true;
+            Eyes = Water = Move = AutoExpand = FloatingMode = true;
             Mascot = "cat";
             PauseUntil = SkippedHour = String.Empty;
         }
@@ -76,6 +79,9 @@ namespace CornerBreak
             result.Water = ReadBoolean(values, "Water", result.Water);
             result.Move = ReadBoolean(values, "Move", result.Move);
             result.AutoExpand = ReadBoolean(values, "AutoExpand", result.AutoExpand);
+            result.FloatingMode = ReadBoolean(values, "FloatingMode", result.FloatingMode);
+            result.FloatingX = ReadCoordinate(values, "FloatingX");
+            result.FloatingY = ReadCoordinate(values, "FloatingY");
             result.Paused = ReadBoolean(values, "Paused", result.Paused);
             result.Mascot = ReadString(values, "Mascot", result.Mascot);
             result.PauseUntil = ReadString(values, "PauseUntil", result.PauseUntil);
@@ -110,6 +116,11 @@ namespace CornerBreak
         {
             if (settings == null) throw new ArgumentNullException("settings", "CornerBreak 设置必须是一个 JSON 对象。");
             if (settings.Version != 1) throw InvalidField("Version", "整数 1");
+            if (settings.FloatingX.HasValue != settings.FloatingY.HasValue)
+                throw InvalidField("FloatingX/FloatingY", "同时为空或同时为整数坐标");
+            if (settings.FloatingX.HasValue && (Math.Abs((long)settings.FloatingX.Value) > 1000000 ||
+                    Math.Abs((long)settings.FloatingY.Value) > 1000000))
+                throw InvalidField("FloatingX/FloatingY", "-1000000 至 1000000 范围内的整数坐标");
             if (settings.Mascot != "cat" && settings.Mascot != "fish" && settings.Mascot != "companion" && settings.Mascot != "none")
                 throw InvalidField("Mascot", "cat、fish、companion 或 none 字符串");
             if (settings.PauseUntil == null) throw InvalidField("PauseUntil", "时间字符串或空字符串");
@@ -137,6 +148,18 @@ namespace CornerBreak
             if (!values.TryGetValue(name, out value)) return defaultValue;
             if (!(value is string)) throw InvalidField(name, "字符串");
             return (string)value;
+        }
+
+        private static int? ReadCoordinate(IDictionary<string, object> values, string name)
+        {
+            object value;
+            if (!values.TryGetValue(name, out value) || value == null) return null;
+            if (!(value is int || value is long))
+                throw InvalidField(name, "整数坐标或 null");
+            long coordinate = Convert.ToInt64(value, CultureInfo.InvariantCulture);
+            if (coordinate < -1000000 || coordinate > 1000000)
+                throw InvalidField(name, "-1000000 至 1000000 范围内的整数坐标");
+            return (int)coordinate;
         }
 
         private static InvalidDataException InvalidField(string name, string expected)

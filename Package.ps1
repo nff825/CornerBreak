@@ -18,6 +18,10 @@ $files = @(
 )
 $licensePath = Join-Path $projectDir 'LICENSE'
 if (Test-Path -LiteralPath $licensePath -PathType Leaf) { $files += @{ Source = $licensePath; Relative = 'LICENSE' } }
+foreach ($document in @('CHANGELOG.md', 'docs/RELEASE_NOTES.md', 'docs/PUBLISHING.md', 'macOS/README.md', 'macOS/TESTING.md', 'macOS/PUBLISHING.md')) {
+    $documentPath = Join-Path $projectDir $document
+    if (Test-Path -LiteralPath $documentPath -PathType Leaf) { $files += @{ Source = $documentPath; Relative = $document } }
+}
 $imageDir = Join-Path $projectDir 'docs\images'
 if (Test-Path -LiteralPath $imageDir -PathType Container) {
     foreach ($image in @(Get-ChildItem -LiteralPath $imageDir -Filter '*.png' -File | Sort-Object Name)) {

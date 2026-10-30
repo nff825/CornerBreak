@@ -16,6 +16,8 @@ namespace CornerBreak.Tests
                 Console.WriteLine("PASS: " + count + " native core assertions.");
                 count = NativeUiTests.Run();
                 Console.WriteLine("PASS: " + count + " native UI assertions.");
+                count = NativeFloatingTests.Run();
+                Console.WriteLine("PASS: " + count + " native floating UI assertions.");
                 return 0;
             }
             catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }

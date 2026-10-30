@@ -16,6 +16,7 @@ namespace CornerBreak.Tests
             TestPauseAndSkip();
             TestGrowth();
             TestSettingsValidation();
+            TestFloatingSettings();
             TestPersistence();
             return assertions;
         }
@@ -223,7 +224,7 @@ namespace CornerBreak.Tests
             string[] invalidJson = { "{oops", "", "null", "[{}]", "[]", "1", "\"cat\"", "true" };
             foreach (string json in invalidJson)
                 Throws(delegate { SettingsStore.Parse(json); }, String.Empty, "reject nonobject or invalid JSON " + json);
-            foreach (string field in new[] { "Eyes", "Water", "Move", "AutoExpand", "Paused" })
+            foreach (string field in new[] { "Eyes", "Water", "Move", "AutoExpand", "FloatingMode", "Paused" })
                 foreach (string wrongType in new[] { "\"false\"", "1", "null", "[]", "{}" })
                 {
                     string json = "{\"" + field + "\":" + wrongType + "}";
@@ -252,6 +253,66 @@ namespace CornerBreak.Tests
             Throws(delegate { SettingsStore.Validate(null); }, "settings", "null settings rejected");
         }
 
+        private static void TestFloatingSettings()
+        {
+            var defaults = new BreakSettings();
+            Equal(defaults.FloatingMode, true, "floating mode default");
+            Equal(defaults.FloatingX, (int?)null, "floating default X unpositioned");
+            Equal(defaults.FloatingY, (int?)null, "floating default Y unpositioned");
+            var legacy = SettingsStore.Parse("{\"Version\":1,\"Eyes\":false,\"Mascot\":\"fish\",\"Paused\":true,\"SkippedHour\":\"2026-10-25-12\"}");
+            Equal(legacy.FloatingMode, true, "legacy settings gain default floating mode");
+            Equal(legacy.FloatingX, (int?)null, "legacy X remains unpositioned");
+            Equal(legacy.FloatingY, (int?)null, "legacy Y remains unpositioned");
+            Equal(legacy.Version, 1, "floating migration keeps settings schema version");
+            Equal(legacy.Eyes, false, "floating migration retains reminder choices");
+            Equal(legacy.Paused, true, "floating migration retains pause");
+            Equal(legacy.SkippedHour, "2026-10-25-12", "floating migration retains skip");
+            Equal(SettingsStore.Parse("{\"FloatingMode\":false}").FloatingMode, false, "timed popup mode accepted");
+            Equal(SettingsStore.Parse("{\"floatingmode\":false,\"floatingx\":-1900,\"floatingy\":72}").FloatingX,
+                (int?)-1900, "floating fields case-insensitive");
+            foreach (int coordinate in new[] { -1000000, -1920, -1, 0, 1920, 1000000 })
+            {
+                string json = "{\"FloatingX\":" + coordinate.ToString(CultureInfo.InvariantCulture) +
+                    ",\"FloatingY\":" + (-coordinate).ToString(CultureInfo.InvariantCulture) + "}";
+                var positioned = SettingsStore.Parse(json);
+                Equal(positioned.FloatingX, (int?)coordinate, "valid signed X " + coordinate);
+                Equal(positioned.FloatingY, (int?)-coordinate, "valid signed Y " + coordinate);
+                var clone = positioned.Clone();
+                clone.FloatingX = 1; clone.FloatingY = 2; clone.FloatingMode = false;
+                Equal(positioned.FloatingX, (int?)coordinate, "floating clone position independent");
+                Equal(positioned.FloatingMode, true, "floating clone mode independent");
+            }
+            foreach (string json in new[] {
+                "{}", "{\"FloatingX\":null}", "{\"FloatingY\":null}",
+                "{\"FloatingX\":null,\"FloatingY\":null}" })
+            {
+                var unpositioned = SettingsStore.Parse(json);
+                Equal(unpositioned.FloatingX.HasValue || unpositioned.FloatingY.HasValue, false, "nullable floating position " + json);
+            }
+            foreach (string json in new[] {
+                "{\"FloatingX\":0}", "{\"FloatingY\":0}",
+                "{\"FloatingX\":null,\"FloatingY\":0}", "{\"FloatingX\":0,\"FloatingY\":null}" })
+                Throws(delegate { SettingsStore.Parse(json); }, "FloatingX/FloatingY", "position must be a pair " + json);
+            foreach (string field in new[] { "FloatingX", "FloatingY" })
+                foreach (string wrongValue in new[] { "true", "false", "\"1\"", "1.0", "1e0", "[]", "{}",
+                    "1000001", "-1000001", "2147483648", "9223372036854775807" })
+                {
+                    string other = field == "FloatingX" ? "FloatingY" : "FloatingX";
+                    string json = "{\"" + field + "\":" + wrongValue + ",\"" + other + "\":0}";
+                    Throws(delegate { SettingsStore.Parse(json); }, field, "strict floating coordinate " + json);
+                }
+            foreach (var invalid in new[] {
+                new BreakSettings { FloatingX = 0 }, new BreakSettings { FloatingY = 0 },
+                new BreakSettings { FloatingX = Int32.MinValue, FloatingY = 0 },
+                new BreakSettings { FloatingX = 0, FloatingY = Int32.MaxValue } })
+                Throws(delegate { SettingsStore.Validate(invalid); }, "FloatingX/FloatingY", "invalid in-memory floating position");
+            var whiteListed = SettingsStore.Parse("{\"FloatingMode\":false,\"FloatingX\":-30,\"FloatingY\":50,\"FutureOption\":\"discard\"}");
+            string safeJson = new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(whiteListed.Clone());
+            Equal(safeJson.Contains("FutureOption"), false, "unknown field excluded from floating save model");
+            Equal(SettingsStore.Parse(safeJson).FloatingMode, false, "floating mode survives serialization");
+            Equal(SettingsStore.Parse(safeJson).FloatingY, (int?)50, "floating coordinate survives serialization");
+        }
+
         private static void TestPersistence()
         {
             string testRoot = Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory);
@@ -266,12 +327,14 @@ namespace CornerBreak.Tests
                 Equal(missing.Eyes, true, "missing file default");
                 Equal(missing.AutoExpand, true, "missing file growth default");
                 Equal(missing.Mascot, "cat", "missing file mascot default");
+                Equal(missing.FloatingMode, true, "missing file floating default");
                 Equal(Directory.Exists(directory), false, "read default does not create directory");
                 var invalid = new BreakSettings { Mascot = "invalid" };
                 Throws(delegate { SettingsStore.Save(path, invalid); }, "Mascot", "invalid save rejected before IO");
                 Equal(Directory.Exists(directory), false, "invalid save creates nothing");
 
-                var saved = new BreakSettings { Eyes = false, AutoExpand = false, Paused = true,
+                var saved = new BreakSettings { Eyes = false, AutoExpand = false, FloatingMode = false,
+                    FloatingX = -2100, FloatingY = 144, Paused = true,
                     PauseUntil = "2026-10-25T13:52:00", SkippedHour = "2026-10-25-12" };
                 SettingsStore.Save(path, saved);
                 BreakSettings loaded = SettingsStore.Load(path);
@@ -280,6 +343,9 @@ namespace CornerBreak.Tests
                 Equal(loaded.Water, saved.Water, "water roundtrip");
                 Equal(loaded.Move, saved.Move, "move roundtrip");
                 Equal(loaded.AutoExpand, saved.AutoExpand, "growth roundtrip");
+                Equal(loaded.FloatingMode, saved.FloatingMode, "floating mode roundtrip");
+                Equal(loaded.FloatingX, saved.FloatingX, "floating X roundtrip");
+                Equal(loaded.FloatingY, saved.FloatingY, "floating Y roundtrip");
                 Equal(loaded.Mascot, saved.Mascot, "mascot roundtrip");
                 Equal(loaded.Paused, saved.Paused, "paused roundtrip");
                 Equal(loaded.PauseUntil, saved.PauseUntil, "deadline roundtrip");
@@ -288,8 +354,14 @@ namespace CornerBreak.Tests
                 byte[] bytes = File.ReadAllBytes(path);
                 Equal(bytes.Length > 3 && bytes[0] == 0xef && bytes[1] == 0xbb && bytes[2] == 0xbf, true, "UTF8 BOM preserved");
                 saved.Water = false;
+                saved.FloatingMode = true;
+                saved.FloatingX = -2400;
                 SettingsStore.Save(path, saved);
                 Equal(SettingsStore.Load(path).Water, false, "replacement effective");
+                Equal(SettingsStore.Load(path).FloatingMode, true, "floating mode replacement effective");
+                Equal(SettingsStore.Load(path).FloatingX, (int?)-2400, "floating position replacement effective");
+                Equal(SettingsStore.Load(path + ".bak").FloatingMode, false, "backup previous floating mode");
+                Equal(SettingsStore.Load(path + ".bak").FloatingX, (int?)-2100, "backup previous floating position");
                 Equal(SettingsStore.Load(path + ".bak").Water, true, "backup previous value");
                 saved.Move = false;
                 SettingsStore.Save(path, saved);

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>CornerBreak.MacDesktop</AssemblyName>
+    <RootNamespace>CornerBreak.MacDesktop</RootNamespace>
+    <Version>0.2.0-beta.1</Version>
+    <AssemblyVersion>0.2.0.0</AssemblyVersion>
+    <ApplicationTitle>CornerBreak</ApplicationTitle>
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Core/CornerBreak.Core.csproj" />
+    <PackageReference Include="Avalonia" Version="11.3.19" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.19" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.19" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.19" />
+    <AvaloniaResource Include="../../assets/mascots/*.png" Link="Assets/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

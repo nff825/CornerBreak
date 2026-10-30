@@ -42,10 +42,14 @@ namespace CornerBreak
                         using (var window = new MainWindow(options, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "settings.json"), mascots))
                         using (var signals = new System.Windows.Forms.Timer { Interval = 250 })
                         {
-                            if (!String.IsNullOrEmpty(options.RenderPreview) || !String.IsNullOrEmpty(options.RenderSettings))
+                            if (!String.IsNullOrEmpty(options.RenderPreview) || !String.IsNullOrEmpty(options.RenderSettings) || !String.IsNullOrEmpty(options.RenderWidget))
                             {
-                                bool settings = !String.IsNullOrEmpty(options.RenderSettings);
-                                window.Render(settings ? options.RenderSettings : options.RenderPreview, settings);
+                                if (!String.IsNullOrEmpty(options.RenderWidget)) window.RenderWidgetImage(options.RenderWidget);
+                                else
+                                {
+                                    bool settings = !String.IsNullOrEmpty(options.RenderSettings);
+                                    window.Render(settings ? options.RenderSettings : options.RenderPreview, settings);
+                                }
                                 return 0;
                             }
                             signals.Tick += delegate {
